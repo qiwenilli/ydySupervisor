@@ -27,6 +27,39 @@ import (
 
 func main() {
 
+	app := cli.NewApp()
+	app.Name = "ydySupervisor"
+	app.Usage = "qiwen<34214399@qq.com>"
+	app.Version = "v1.0"
+
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "config",
+			Value: "./config.yaml",
+			Usage: "setting config.yaml",
+		},
+		cli.StringFlag{
+			Name:  "port",
+			Value: "8412",
+			Usage: "listen port",
+		},
+	}
+
+	var port string
+	var config string
+
+	app.Action = func(c *cli.Context) error {
+
+		port = c.String("port")
+		config = c.String("config")
+
+		return nil
+	}
+	if err := app.Run(os.Args); err != nil {
+		os.Exit(1)
+	}
+	app.Run(os.Args)
+
 	//用于守护进程
 	if err := ioutil.WriteFile("ydySupervisor.pid", []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
 		color.Red("write pid error " + err.Error())
@@ -36,40 +69,10 @@ func main() {
 		color.Red("please root run")
 		return
 	}
-
-	app := cli.NewApp()
-	app.Name = "ydyCron"
-	app.Usage = "qiwen<34214399@qq.com>"
-	app.Version = "v1.0"
-
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:  "config",
-			Value: "config.yaml",
-			Usage: "language for the greeting",
-		},
-		cli.StringFlag{
-			Name:  "port",
-			Value: "8412",
-			Usage: "language for the greeting",
-		},
+	if t, _ := PathExists(config); t == false {
+		color.Red(config + " not exists")
+		return
 	}
-
-	var port string
-	var config string
-
-	app.Action = func(c *cli.Context) error {
-
-		// if c.NArg() > 0 {
-		//     name = c.Args().Get(0)
-		// }
-
-		port = c.String("port")
-		config = c.String("config")
-
-		return nil
-	}
-	app.Run(os.Args)
 
 	//
 	var web WebRequest
@@ -135,11 +138,11 @@ func defaultHandle(w http.ResponseWriter, r *http.Request) {
 		filed["Lock"] = v.Lock
 		filed["Name"] = v.Name
 		filed["Cmd"] = v.Cmd
-        if v.Ctime>0{
-            filed["Ctime"] = time.Unix(v.Ctime, 0).Format("2006-01-02 15:04:05")
-        }else{
-            filed["Ctime"] =""
-        }
+		if v.Ctime > 0 {
+			filed["Ctime"] = time.Unix(v.Ctime, 0).Format("2006-01-02 15:04:05")
+		} else {
+			filed["Ctime"] = ""
+		}
 
 		//
 		_html_task_list[i] = filed
@@ -352,6 +355,17 @@ func SetUser(task *Task) (err error) {
 	return nil
 }
 
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 //---------------yaml
 /**
 * 用户权限
@@ -404,7 +418,7 @@ var index_html_tpl = `
 <table border="0" width="100%">
     <thead>
         <tr bgcolor="#ccff99">
-            <td>Pid</td>
+            <td>Id:Pid</td>
             <td>服务</td>
             <td>启动时间</td>
             <td>命令</td>
