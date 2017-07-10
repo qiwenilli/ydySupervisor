@@ -28,8 +28,12 @@ import (
 func main() {
 
 	//用于守护进程
-	if err := ioutil.WriteFile("ydyCron.pid", []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
+	if err := ioutil.WriteFile("ydySupervisor.pid", []byte(fmt.Sprint(os.Getpid())), 0600); err != nil {
 		color.Red("write pid error " + err.Error())
+		return
+	}
+	if uid := os.Getuid(); uid > 0 {
+		color.Red("please root run")
 		return
 	}
 
@@ -102,7 +106,7 @@ func (*WebRequest) StartWeb(port, config string) {
 	http.HandleFunc("/index", defaultHandle)
 	http.HandleFunc("/run", web_run_task_handle)
 	http.HandleFunc("/kill", web_kill_task_handle)
-	http.HandleFunc("/tail", web_tail_task_handle)
+	http.HandleFunc("/killname", web_killname_task_handle)
 
 	//
 	server := &http.Server{
@@ -131,7 +135,11 @@ func defaultHandle(w http.ResponseWriter, r *http.Request) {
 		filed["Lock"] = v.Lock
 		filed["Name"] = v.Name
 		filed["Cmd"] = v.Cmd
-		filed["Ctime"] = time.Unix(v.Ctime, 0).Format("2006-01-02 15:04:05")
+        if v.Ctime>0{
+            filed["Ctime"] = time.Unix(v.Ctime, 0).Format("2006-01-02 15:04:05")
+        }else{
+            filed["Ctime"] =""
+        }
 
 		//
 		_html_task_list[i] = filed
@@ -178,19 +186,37 @@ func web_kill_task_handle(w http.ResponseWriter, r *http.Request) {
 
 	task := TaskList[task_id_int]
 
+	output := "kill sucess"
 	if task.Pid > 0 {
+
+		for {
+			if newP, err := os.FindProcess(task.Pid + 1); err != nil {
+				output = fmt.Sprintf(err.Error())
+			} else {
+				if err := newP.Signal(syscall.SIGQUIT); err == nil {
+					break
+				}
+			}
+
+			if err := task.CmdBuf.Process.Kill(); err == nil {
+				break
+			}
+
+			if err := task.CmdBuf.Process.Signal(syscall.SIGQUIT); err != nil {
+				output = fmt.Sprintf(err.Error())
+			}
+		}
 
 		task.Pid = 0
 		task.Lock = 0
 		task.Ctime = 0
 		task.Tail = ""
-		task.CmdBuf.Process.Kill()
 	}
 
-	io.WriteString(w, "task kill...")
+	io.WriteString(w, output)
 }
 
-func web_tail_task_handle(w http.ResponseWriter, r *http.Request) {
+func web_killname_task_handle(w http.ResponseWriter, r *http.Request) {
 
 	task_id := r.FormValue("task_id")
 
@@ -198,7 +224,14 @@ func web_tail_task_handle(w http.ResponseWriter, r *http.Request) {
 
 	task := TaskList[task_id_int]
 
-	io.WriteString(w, task.Tail)
+	//
+	args := []string{"-c", "pkill -9 " + task.Name}
+	output, err := exec.Command("/bin/bash", args...).Output()
+
+	//
+	fmt.Println(string(output), err)
+
+	io.WriteString(w, "pkill -9 "+task.Name+" sucess")
 }
 
 func execute(task_id int, chan_err chan string) (err error) {
@@ -257,7 +290,7 @@ func execute(task_id int, chan_err chan string) (err error) {
 			}
 			fmt.Println(">", line)
 
-			task.Tail = task.Tail + fmt.Sprintf("%s",line)
+			task.Tail = task.Tail + fmt.Sprintf("%s", line)
 		}
 
 		//
@@ -361,6 +394,7 @@ var index_html_tpl = `
             table td {padding:5px;font-size:14px;}
             .btn_red{background-color:#ff0000; color:#ffffff;}
             .btn_green{background-color:#00ff00; }
+            .btn_yellow{background-color:yellow; }
         </style>
     </head>
     <body>
@@ -396,7 +430,7 @@ var index_html_tpl = `
                 <font class="btn_red">[ 已停止 ]</font>
                 {{end}}
 
-                <button class="manual_tail">Tail</button>
+                <button class="manual_killname btn_yellow">Kill By Name</button>
             </td>
         </tr>
         {{end}}
@@ -452,14 +486,14 @@ $(".manual_run_task").click(function(){
 });
 
 
-$(".manual_tail").click(function(){
+$(".manual_killname").click(function(){
 
     //if(confirm("确认手动运行"+ txt +" 吗？") == false){
     //    return;
     //}
 
     $.ajax( {  
-        url:'/tail',
+        url:'/killname',
         data:{  
             "task_id":$(this).attr("task_id")
         },  
